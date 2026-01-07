@@ -28,24 +28,18 @@ export function Chat() {
                 `${msg.message.type === 'human' ? 'Cliente' : 'Atendente'}: ${msg.message.content}`
             ).join('\n');
 
-            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://iixeygzkgfwetchjvpvo.supabase.co';
+            const edgeFunctionUrl = `${supabaseUrl}/functions/v1/generate-summary`;
+            const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || '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';
+
+            const response = await fetch(edgeFunctionUrl, {
                 method: "POST",
                 headers: {
-                    "Authorization": "Bearer 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",
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    "model": "x-ai/grok-4.1-fast:free",
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "Você é um assistente útil. Analise a seguinte conversa de atendimento.\n\nSua resposta DEVE seguir estritamente este formato com Markdown:\n\n### Resumo conversa\n(Resumo curto de MÁXIMO 2 linhas sobre o que foi tratado)\n\n### Análise\n(Pontue o que foi positivo e o que foi negativo/erro no atendimento usando **negrito** para os tópicos. IMPORTANTE: Se a conversa NÃO for relacionada a vendas/leads (ex: candidato a vaga, engano, spam, teste), responda apenas:\n**Status:** Não Cliente\n**Motivo:** (Explicação breve))"
-                        },
-                        {
-                            "role": "user",
-                            "content": conversationText
-                        }
-                    ]
+                    messages: conversationText,
+                    apiKey: apiKey // Passing key from client to edge function
                 })
             });
 
@@ -103,7 +97,7 @@ export function Chat() {
 
     useEffect(() => {
         if (selectedLead) {
-            fetchChatHistory(selectedLead.telefone);
+            fetchChatHistory((selectedLead.telefone || '').trim());
             setSummary('');
         } else {
             setChatHistory([]);
@@ -114,22 +108,23 @@ export function Chat() {
     async function fetchLeads() {
         try {
             const { data: leadsData, error: leadsError } = await supabase
-                .from('leads_filizola')
+                .from('leads_odonto_solluti')
                 .select('*')
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false })
+                .range(0, 4999);
 
             if (leadsError) throw leadsError;
 
             // Fetch chat sessions to filter leads
             const { data: chatData, error: chatError } = await supabase
-                .from('n8n_chat_histories_filizola')
-                .select('session_id');
+                .rpc('get_active_chat_sessions');
 
             if (chatError) throw chatError;
 
             // Create a Set of session_ids for efficient lookup
             // Normalize session_ids to ensure matching (trim and lowercase)
-            const chatSessions = new Set(chatData?.map(c => (c.session_id || '').trim().toLowerCase()) || []);
+            const sessions = (chatData as { session_id: string }[] | null)?.map(c => (c.session_id || '').trim().toLowerCase()) || [];
+            const chatSessions = new Set<string>(sessions);
 
             // Filter leads that have chat history
             // We store the set of chat sessions to use in the render filter
@@ -143,15 +138,17 @@ export function Chat() {
 
     async function fetchChatHistory(sessionId: string | null) {
         if (!sessionId) return;
+        console.log('[Chat] Fetching chat history for session ID:', sessionId);
         try {
             // Assuming session_id in chat history matches telefone in leads
             const { data, error } = await supabase
-                .from('n8n_chat_histories_filizola')
+                .from('n8n_chat_histories_odonto_solutti')
                 .select('*')
                 .eq('session_id', sessionId)
                 .order('id', { ascending: true });
 
             if (error) throw error;
+            console.log('[Chat] Fetched messages:', data?.length || 0);
             setChatHistory(data || []);
         } catch (error) {
             console.error('Error fetching chat history:', error);
@@ -161,7 +158,7 @@ export function Chat() {
     const filteredLeads = leads.filter(lead => {
         // Apply filter
         if (filter === 'repassado' && lead.status_lead !== 'repassado') return false;
-        if (filter === 'urgente') return false; // lead.urgencia_caso removed
+        // if (filter === 'urgente') return false; // lead.urgencia_caso logic if needed
 
         // Apply search term
         if (searchTerm.trim()) {
@@ -261,8 +258,8 @@ export function Chat() {
                                         <span className="text-xs text-slate-500">10:42</span>
                                     </div>
                                     <p className="text-xs text-slate-400 truncate flex items-center gap-1">
-                                        {lead.status_lead === 'novo' && <span className="w-1.5 h-1.5 rounded-full bg-neon-blue"></span>}
-                                        {lead.produtos_interesse || 'Sem interesse'}
+                                        {(lead.status_lead === 'novo' || lead.status_lead === 'novo lead') && <span className="w-1.5 h-1.5 rounded-full bg-neon-blue"></span>}
+                                        {lead.tipo_procedimento || 'Sem interesse'}
                                     </p>
                                 </div>
                             </button>
@@ -326,7 +323,7 @@ export function Chat() {
                                     style={{ backgroundImage: 'radial-gradient(#64ffda 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
                                 </div>
 
-                                {chatHistory.map((msg) => {
+                                {chatHistory.length > 0 ? chatHistory.map((msg) => {
                                     // Logic Fix: 
                                     // 'human' = Client -> Left Side (White/Gray)
                                     // 'ai' = Agent -> Right Side (Neon/Color)
@@ -372,7 +369,11 @@ export function Chat() {
                                             </div>
                                         </div>
                                     );
-                                })}
+                                }) : (
+                                    <div className="flex items-center justify-center h-full text-slate-500">
+                                        <p className="text-sm">Nenhuma mensagem encontrada para esta conversa.</p>
+                                    </div>
+                                )}
                                 <div ref={messagesEndRef} />
                             </div>
 
@@ -439,19 +440,18 @@ export function Chat() {
                                 <div className="w-24 h-24 mx-auto bg-gradient-to-br from-neon-blue to-blue-600 rounded-full flex items-center justify-center text-3xl font-bold text-navy-900 shadow-lg shadow-neon-blue/20 mb-4 border-4 border-navy-800 ring-2 ring-navy-700">
                                     {selectedLead.lead_name ? selectedLead.lead_name.charAt(0).toUpperCase() : 'L'}
                                 </div>
-                                <h2 className="text-xl font-bold text-white">{selectedLead.lead_name}</h2>
-                                <p className="text-slate-400 text-sm mt-1">{selectedLead.telefone}</p>
-                                <div className="flex justify-center gap-2 mt-4">
-                                    <button className="p-2 bg-navy-700 rounded-lg text-neon-blue hover:bg-neon-blue hover:text-navy-900 transition-colors border border-navy-600">
-                                        <Phone size={18} />
-                                    </button>
-                                    <button className="p-2 bg-navy-700 rounded-lg text-neon-blue hover:bg-neon-blue hover:text-navy-900 transition-colors border border-navy-600">
-                                        <User size={18} />
-                                    </button>
-                                    <button className="p-2 bg-navy-700 rounded-lg text-neon-blue hover:bg-neon-blue hover:text-navy-900 transition-colors border border-navy-600">
-                                        <FileText size={18} />
-                                    </button>
-                                </div>
+                                <h2 className="text-xl font-bold text-white">Atendimentos</h2>
+                                <p className="text-slate-400 text-sm">Gerencie suas conversas do Odonto Solluti</p>
+                            </div>        <div className="flex justify-center gap-2 mt-4">
+                                <button className="p-2 bg-navy-700 rounded-lg text-neon-blue hover:bg-neon-blue hover:text-navy-900 transition-colors border border-navy-600">
+                                    <Phone size={18} />
+                                </button>
+                                <button className="p-2 bg-navy-700 rounded-lg text-neon-blue hover:bg-neon-blue hover:text-navy-900 transition-colors border border-navy-600">
+                                    <User size={18} />
+                                </button>
+                                <button className="p-2 bg-navy-700 rounded-lg text-neon-blue hover:bg-neon-blue hover:text-navy-900 transition-colors border border-navy-600">
+                                    <FileText size={18} />
+                                </button>
                             </div>
 
                             <div className="space-y-3">
@@ -470,7 +470,7 @@ export function Chat() {
                                                 const newValue = !selectedLead.atendimento_humano;
                                                 try {
                                                     const { error } = await supabase
-                                                        .from('leads_filizola')
+                                                        .from('leads_odonto_solluti')
                                                         .update({ atendimento_humano: newValue })
                                                         .eq('id', selectedLead.id);
 
@@ -554,7 +554,7 @@ export function Chat() {
                                         </div>
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Status</span>
                                     </div>
-                                    <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold border mt-1 ${selectedLead.status_lead === 'novo' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                    <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold border mt-1 ${selectedLead.status_lead === 'novo' || selectedLead.status_lead === 'novo lead' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
                                         selectedLead.status_lead === 'repassado' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                                             'bg-slate-700 text-slate-300 border-slate-600'
                                         }`}>
@@ -577,9 +577,9 @@ export function Chat() {
                                         <div className="p-1.5 bg-navy-800 rounded-lg text-purple-400 group-hover:bg-purple-400 group-hover:text-navy-900 transition-colors">
                                             <FileText size={16} />
                                         </div>
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Beneficio</span>
+                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tipo de Procedimento</span>
                                     </div>
-                                    <p className="text-sm font-medium text-white pl-1">{selectedLead.tipo_caso || 'Não informado'}</p>
+                                    <p className="text-sm font-medium text-white pl-1">{selectedLead.tipo_procedimento || 'Não informado'}</p>
                                 </div>
 
                                 <div className="p-3 bg-navy-900 rounded-2xl border border-navy-700 hover:border-neon-blue/30 transition-colors group">
@@ -598,6 +598,6 @@ export function Chat() {
                     </>
                 )}
             </div>
-        </Layout>
+        </Layout >
     );
 }

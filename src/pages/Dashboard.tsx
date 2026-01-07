@@ -1,18 +1,95 @@
-
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Layout } from '../components/Layout';
 import { KPICard } from '../components/KPICard';
 import { StatusChart } from '../components/charts/StatusChart';
 
-import { ShiftPreferenceChart } from '../components/charts/ShiftPreferenceChart';
 import { CadenceVolumeChart } from '../components/charts/CadenceVolumeChart';
 import { Users, UserCheck, MessageCircle, Calendar, Download, Target, Leaf, BarChart2 } from 'lucide-react';
-import type { Lead } from '../types';
+import type { Lead, RepassadoLead } from '../types';
 import { format, subDays, isWithinInterval, parseISO, startOfDay, endOfDay, differenceInDays } from 'date-fns';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#A28BF3', '#F472B6', '#6366F1', '#EC4899', '#10B981', '#F59E0B'];
+
+// Status-specific colors for the Status Chart
+const STATUS_COLORS: Record<string, string> = {
+    'novo lead': '#3B82F6',      // Blue - new/fresh
+    'repassado': '#10B981',       // Green - success/forwarded
+    'agendamento futuro': '#F59E0B', // Amber - scheduled/pending
+    'suporte': '#8B5CF6',         // Purple - support/help
+    'indefinido': '#6B7280'       // Gray - undefined
+};
+
+// Maps procedure types to unified categories
+function mapProcedureToCategory(tipo: string | null | undefined): string {
+    if (!tipo || tipo.trim() === '') return 'Não Informado';
+
+    const lower = tipo.toLowerCase().trim();
+
+    // Facetas: lentes, resina, facetas
+    if (lower.includes('faceta') || lower.includes('lente') || lower.includes('resina') && (lower.includes('lente') || lower.includes('faceta'))) {
+        return 'Facetas';
+    }
+
+    // Aparelho Ortodôntico: aparelho, ortodont, manutenção aparelho
+    if (lower.includes('aparelho') || lower.includes('ortodont')) {
+        return 'Aparelho Ortodôntico';
+    }
+
+    // Extração: extração, siso
+    if (lower.includes('extração') || lower.includes('extracao') || lower.includes('siso')) {
+        return 'Extração';
+    }
+
+    // Prótese: prótese, protese
+    if (lower.includes('prótese') || lower.includes('protese')) {
+        return 'Prótese';
+    }
+
+    // Tratamento de Canal
+    if (lower.includes('canal')) {
+        return 'Tratamento de Canal';
+    }
+
+    // Clareamento
+    if (lower.includes('clareamento') || lower.includes('branqueamento')) {
+        return 'Clareamento';
+    }
+
+    // Avaliação: avaliação, consulta
+    if (lower.includes('avaliação') || lower.includes('avaliacao') || lower.includes('consulta')) {
+        return 'Avaliação';
+    }
+
+    // Procedimentos Gerais: limpeza, restauração, raspagem, obturação
+    if (lower.includes('limpeza') || lower.includes('restauração') || lower.includes('restauracao') ||
+        lower.includes('raspagem') || lower.includes('obturação') || lower.includes('obturacao')) {
+        return 'Procedimentos Gerais';
+    }
+
+    return 'Outros';
+}
+
+// Helper to safely parse metadata (can be string or object)
+function parseMetadata(meta: unknown): any {
+    if (!meta) return null;
+    if (typeof meta === 'string') {
+        try {
+            return JSON.parse(meta);
+        } catch {
+            return null;
+        }
+    }
+    if (typeof meta === 'object') {
+        return meta;
+    }
+    return null;
+}
 
 export function Dashboard() {
     const [leads, setLeads] = useState<Lead[]>([]);
+    const [repassados, setRepassados] = useState<RepassadoLead[]>([]);
     const [loading, setLoading] = useState(true);
     const [dateRange, setDateRange] = useState({
         start: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
@@ -31,8 +108,8 @@ export function Dashboard() {
 
         // Define headers
         const headers = [
-            'ID', 'Nome', 'Telefone', 'Status', 'Etapa Follow', 'Tipo de Caso',
-            'Setor Principal', 'Produto de Interesse', 'Data de Criação',
+            'ID', 'Nome', 'Telefone', 'Status', 'Etapa Follow', 'Tipo Procedimento',
+            'Urgência', 'Horário Pref.', 'Data de Criação',
             'Data Última Interação', 'Dia Cadência', 'Atendimento Humano'
         ].join(',');
 
@@ -44,9 +121,9 @@ export function Dashboard() {
                 `"${lead.telefone || ''}"`,
                 lead.status_lead || '',
                 lead.etapa_follow || '',
-                lead.tipo_caso || '',
-                lead.setor_principal || '',
-                `"${lead.produtos_interesse || ''}"`,
+                lead.tipo_procedimento || '',
+                lead.urgencia_caso || '',
+                lead.horario_preferencia || '',
                 lead.created_at ? format(parseISO(lead.created_at), 'dd/MM/yyyy HH:mm:ss') : '',
                 lead.data_ultima_interacao ? format(parseISO(lead.data_ultima_interacao), 'dd/MM/yyyy HH:mm:ss') : '',
                 lead.dia_cadencia || '',
@@ -69,32 +146,84 @@ export function Dashboard() {
     };
 
     useEffect(() => {
-        fetchLeads();
-    }, []);
+        fetchData();
+    }, [dateRange]);
 
     // Reset pagination when date filter changes
     useEffect(() => {
         setCurrentPage(1);
     }, [dateRange]);
 
-    async function fetchLeads() {
+    async function fetchData() {
+        setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('leads_filizola')
-                .select('*')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            setLeads(data || []);
+            await Promise.all([fetchLeads(), fetchRepassados()]);
         } catch (error) {
-            console.error('Error fetching leads:', error);
+            console.error('Error fetching data:', error);
         } finally {
             setLoading(false);
         }
     }
 
+    async function fetchLeads() {
+        try {
+            let query = supabase
+                .from('leads_odonto_solluti')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .range(0, 4999);
+
+            if (dateRange.start) {
+                query = query.gte('created_at', `${dateRange.start}T00:00:00`);
+            }
+            if (dateRange.end) {
+                query = query.lte('created_at', `${dateRange.end}T23:59:59`);
+            }
+
+            const { data, error } = await query;
+
+            if (error) throw error;
+            setLeads(data || []);
+        } catch (error) {
+            console.error('Error fetching leads:', error);
+        }
+    }
+
+    async function fetchRepassados() {
+        try {
+            let query = supabase
+                .from('repassado_odonto_solluti')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .range(0, 4999);
+
+            if (dateRange.start) {
+                query = query.gte('created_at', `${dateRange.start}T00:00:00`);
+            }
+            if (dateRange.end) {
+                query = query.lte('created_at', `${dateRange.end}T23:59:59`);
+            }
+
+            const { data, error } = await query;
+
+            if (error) throw error;
+            setRepassados(data || []);
+        } catch (error) {
+            console.error('Error fetching repassados:', error);
+        }
+    }
+
     // Filter leads by date
     const filteredLeads = leads.filter(lead => {
+        if (!lead.created_at) return false;
+        const leadDate = parseISO(lead.created_at);
+        const start = startOfDay(parseISO(dateRange.start));
+        const end = endOfDay(parseISO(dateRange.end));
+        return isWithinInterval(leadDate, { start, end });
+    });
+
+    // Filter repassados by date (same logic)
+    const filteredRepassados = repassados.filter(lead => {
         if (!lead.created_at) return false;
         const leadDate = parseISO(lead.created_at);
         const start = startOfDay(parseISO(dateRange.start));
@@ -152,19 +281,33 @@ export function Dashboard() {
     const engagementRateTrend = calculateTrend(engagementRate, previousEngagementRate);
 
     // Prepare Chart Data
-    const statusData = Object.entries(filteredLeads.reduce((acc, lead) => {
-        const status = lead.status_lead || 'Indefinido';
-        acc[status] = (acc[status] || 0) + 1;
+    // Requirement: Status Chart must use leads_odonto_solluti AND repassado_odonto_solluti
+    // We will count 'repassado' from the repassados table, and other statuses from the leads table.
+
+    // 1. Get non-repassed status counts from leads table
+    const leadStatusCounts = filteredLeads.reduce((acc, lead) => {
+        const status = (lead.status_lead || 'Indefinido').toLowerCase();
+        if (status !== 'repassado') {
+            acc[status] = (acc[status] || 0) + 1;
+        }
         return acc;
-    }, {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
+    }, {} as Record<string, number>);
+
+    // 2. Add repassed count from repassados table
+    // The user explicitly said: "leads that were repassed is in the repasse table"
+    const repassedCount = filteredRepassados.length;
+    if (repassedCount > 0) {
+        leadStatusCounts['repassado'] = repassedCount;
+    }
+
+    const statusData = Object.entries(leadStatusCounts).map(([name, value]) => ({
+        name: name.charAt(0).toUpperCase() + name.slice(1),
+        value
+    }));
 
 
 
-    const shiftData = Object.entries(filteredLeads.reduce((acc, lead) => {
-        const type = lead.tipo_caso || 'Não Informado';
-        acc[type] = (acc[type] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
+
 
     const cadenceData = Object.entries(filteredLeads.reduce((acc, lead) => {
         const day = lead.dia_cadencia || 'N/A';
@@ -174,27 +317,51 @@ export function Dashboard() {
 
     // Metadata Analytics
     const creativeStats = filteredLeads.reduce((acc, lead) => {
-        const meta = lead.metadata as any;
+        const meta = parseMetadata(lead.metadata);
         if (meta?.mediaUrl) {
             const url = meta.mediaUrl;
-            if (!acc[url]) acc[url] = { count: 0, repassed: 0, url };
+            const sourceUrl = meta.sourceUrl || ''; // Link to the post
+            if (!acc[url]) acc[url] = { count: 0, repassed: 0, url, sourceUrl };
             acc[url].count++;
+            // Keep the first non-empty sourceUrl we find
+            if (sourceUrl && !acc[url].sourceUrl) {
+                acc[url].sourceUrl = sourceUrl;
+            }
             if (lead.status_lead === 'repassado') acc[url].repassed++;
         } else {
             // Handle organic leads (no mediaUrl)
             const key = 'organic';
-            if (!acc[key]) acc[key] = { count: 0, repassed: 0, url: '' };
+            if (!acc[key]) acc[key] = { count: 0, repassed: 0, url: '', sourceUrl: '' };
             acc[key].count++;
             if (lead.status_lead === 'repassado') acc[key].repassed++;
         }
         return acc;
-    }, {} as Record<string, { count: number, repassed: number, url: string }>);
+    }, {} as Record<string, { count: number, repassed: number, url: string, sourceUrl: string }>);
 
     const sourceStats = filteredLeads.reduce((acc, lead) => {
-        const meta = lead.metadata as any;
-        const type = meta?.sourceType === 'ad' ? 'Pago (Ads)' : 'Orgânico';
-        const app = meta?.sourceApp || 'Desconhecido';
-        const key = `${type} - ${app}`;
+        const meta = parseMetadata(lead.metadata);
+
+        // Check if lead came from paid traffic (ads)
+        // Traffic indicators: sourceType='ad', conversionSource contains 'Ads', 
+        // ctwaClid has value, clickToWhatsappCall='true', or entryPointConversionSource contains 'ad'
+        const isPaid =
+            meta?.sourceType === 'ad' ||
+            (meta?.conversionSource && meta.conversionSource.toLowerCase().includes('ads')) ||
+            (meta?.ctwaClid && meta.ctwaClid.trim() !== '') ||
+            meta?.clickToWhatsappCall === 'true' ||
+            (meta?.entryPointConversionSource && meta.entryPointConversionSource.toLowerCase().includes('ad'));
+
+        let key: string;
+
+        if (isPaid) {
+            // For paid traffic, show the source app (Instagram/Facebook)
+            const app = meta?.sourceApp || meta?.entryPointConversionApp || 'Ads';
+            const appName = app.charAt(0).toUpperCase() + app.slice(1).toLowerCase();
+            key = `Pago - ${appName}`;
+        } else {
+            // Organic traffic
+            key = 'Orgânico';
+        }
 
         if (!acc[key]) acc[key] = 0;
         acc[key]++;
@@ -208,6 +375,7 @@ export function Dashboard() {
         .map(c => ({
             name: c.url.split('/').pop() || 'Criativo',
             mediaUrl: c.url,
+            sourceUrl: c.sourceUrl, // Link to Instagram/Facebook post
             count: c.count
         }));
 
@@ -230,7 +398,7 @@ export function Dashboard() {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl">
                     <div>
                         <h2 className="text-xl font-bold text-white">Visão Geral</h2>
-                        <p className="text-slate-400 text-sm">Acompanhe o desempenho em tempo real</p>
+                        <p className="text-slate-400 text-sm">Bem-vindo ao Dashboard Odonto Solluti</p>
                     </div>
                     <div className="flex items-center gap-3 bg-navy-900 p-2 rounded-xl border border-navy-700">
                         <Calendar size={18} className="text-neon-blue ml-2" />
@@ -254,7 +422,7 @@ export function Dashboard() {
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
                     <KPICard title="Total de Leads" value={totalLeads} icon={Users} color="indigo" trend={totalLeadsTrend.trend} trendUp={totalLeadsTrend.trendUp} />
                     <KPICard title="Leads Repassados" value={repassedLeads} icon={UserCheck} color="green" trend={repassedLeadsTrend.trend} trendUp={repassedLeadsTrend.trendUp} />
-                    <KPICard title="Taxa de Engajamento" value={`${engagementRate}% `} icon={MessageCircle} color="violet" trend={engagementRateTrend.trend} trendUp={engagementRateTrend.trendUp} />
+                    <KPICard title="Taxa de Engajamento" value={`${engagementRate}%`} icon={MessageCircle} color="violet" trend={engagementRateTrend.trend} trendUp={engagementRateTrend.trendUp} />
                     <KPICard title="Média de Leads/Dia" value={avgLeadsPerDay} icon={BarChart2} color="orange" />
                 </div>
 
@@ -318,9 +486,23 @@ export function Dashboard() {
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-medium text-white truncate" title={creative.name}>
-                                                {isOrganic ? 'Sem Criativo' : (creative.name || 'Anúncio sem nome')}
-                                            </p>
+                                            {isOrganic ? (
+                                                <p className="text-sm font-medium text-white truncate">Sem Criativo</p>
+                                            ) : creative.sourceUrl ? (
+                                                <a
+                                                    href={creative.sourceUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-sm font-medium text-pink-400 hover:text-pink-300 truncate block underline"
+                                                    title={`Ver anúncio: ${creative.sourceUrl}`}
+                                                >
+                                                    🔗 Ver Anúncio
+                                                </a>
+                                            ) : (
+                                                <p className="text-sm font-medium text-white truncate" title={creative.name}>
+                                                    {creative.name || 'Anúncio sem nome'}
+                                                </p>
+                                            )}
                                             <div className="flex items-center gap-2 mt-1">
                                                 <span className="text-xs text-slate-400">
                                                     {creative.count} leads
@@ -400,52 +582,97 @@ export function Dashboard() {
                             Status dos Leads
                         </h3>
                         <div className="h-64">
-                            <StatusChart data={statusData} />
+                            <StatusChart data={statusData} colorMap={STATUS_COLORS} />
                         </div>
                     </div>
+                </div>
+
+                {/* Repassados and Procedures Row */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Tipos de Procedimento - Sourcing from REPASSADOS */}
                     <div className="bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl">
                         <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                            <Users className="text-neon-purple" size={20} />
-                            Em Atendimento Humano
+                            <Calendar className="text-pink-400" size={20} />
+                            Tipos de Procedimento (Repassados)
                         </h3>
-                        <div className="h-64 overflow-y-auto custom-scrollbar pr-2">
-                            <div className="space-y-3">
-                                {leads
-                                    .filter(l => l.atendimento_humano)
-                                    .slice(0, 5)
-                                    .map((lead, idx) => (
-                                        <div key={idx} className="bg-navy-900/50 p-3 rounded-xl border border-navy-700 flex items-center justify-between group hover:border-neon-purple/30 transition-all">
-                                            <div className="flex items-center gap-3">
-                                                <div className="h-8 w-8 rounded-lg bg-navy-800 flex items-center justify-center text-neon-purple font-bold text-xs border border-navy-600">
-                                                    {idx + 1}
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-medium text-white truncate max-w-[120px]" title={lead.lead_name || ''}>
-                                                        {lead.lead_name || 'Sem nome'}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500">{lead.telefone}</p>
-                                                </div>
-                                            </div>
-                                            <span className="text-xs text-slate-400 bg-navy-800 px-2 py-1 rounded-lg border border-navy-700 whitespace-nowrap flex-shrink-0">
-                                                {lead.created_at ? new Date(lead.created_at).toLocaleDateString() : '-'}
-                                            </span>
+                        <div className="flex items-center justify-center h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={(() => {
+                                            // Group procedure types by CATEGORY and get counts
+                                            const procedureCounts = filteredRepassados.reduce((acc, lead) => {
+                                                const category = mapProcedureToCategory(lead.tipo_procedimento);
+                                                acc[category] = (acc[category] || 0) + 1;
+                                                return acc;
+                                            }, {} as Record<string, number>);
+
+                                            // Sort by count descending
+                                            const sortedEntries = Object.entries(procedureCounts)
+                                                .sort(([, a], [, b]) => b - a);
+
+                                            return sortedEntries.map(([name, value]) => ({ name, value }));
+                                        })()}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={100}
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                        label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                                    >
+                                        {(() => {
+                                            const procedureCounts = filteredRepassados.reduce((acc, lead) => {
+                                                const category = mapProcedureToCategory(lead.tipo_procedimento);
+                                                acc[category] = (acc[category] || 0) + 1;
+                                                return acc;
+                                            }, {} as Record<string, number>);
+
+                                            const sortedEntries = Object.entries(procedureCounts)
+                                                .sort(([, a], [, b]) => b - a);
+
+                                            return sortedEntries.map((_, index) => (
+                                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="rgba(0,0,0,0.2)" />
+                                            ));
+                                        })()}
+                                    </Pie>
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
+                                        itemStyle={{ color: '#fff' }}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Últimos Leads Repassados */}
+                    <div className="bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl overflow-hidden flex flex-col">
+                        <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                            <UserCheck className="text-emerald-400" size={20} />
+                            Últimos Leads Repassados
+                        </h3>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4 max-h-[300px]">
+                            {repassados.slice(0, 10).map((lead) => (
+                                <div key={lead.id} className="p-4 bg-navy-900/50 rounded-2xl border border-navy-700 hover:border-emerald-500/30 transition-all flex items-center justify-between group">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/20 group-hover:bg-emerald-500 group-hover:text-navy-900 transition-colors">
+                                            {lead.lead_name ? lead.lead_name.charAt(0).toUpperCase() : 'L'}
                                         </div>
-                                    ))}
-                                {leads.filter(l => l.atendimento_humano).length === 0 && (
-                                    <div className="text-center text-slate-500 py-10">
-                                        Nenhum lead em atendimento humano.
+                                        <div>
+                                            <p className="font-bold text-white text-sm">{lead.lead_name || 'Sem nome'}</p>
+                                            <p className="text-xs text-slate-400">{lead.telefone}</p>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl">
-                        <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                            <Calendar className="text-neon-pink" size={20} />
-                            Tipos de Caso
-                        </h3>
-                        <div className="h-64">
-                            <ShiftPreferenceChart data={shiftData} />
+                                    <span className="px-2 py-1 bg-navy-800 rounded-lg text-xs text-slate-300 border border-navy-600">
+                                        {new Date(lead.created_at).toLocaleDateString('pt-BR')}
+                                    </span>
+                                </div>
+                            ))}
+                            {repassados.length === 0 && (
+                                <div className="text-center py-10 text-slate-500">
+                                    Nenhum lead repassado encontrado.
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -496,12 +723,12 @@ export function Dashboard() {
                                                 </div>
                                             </td>
                                             <td className="px-8 py-4 whitespace-nowrap text-sm text-slate-400 font-medium">
-                                                {lead.tipo_caso || lead.produtos_interesse || 'Sem interesse'}
+                                                {lead.tipo_procedimento || 'Sem interesse'}
                                             </td>
                                             <td className="px-8 py-4 whitespace-nowrap">
                                                 <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-md border ${lead.status_lead === 'repassado'
                                                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                                    : lead.status_lead === 'novo'
+                                                    : lead.status_lead === 'novo' || lead.status_lead === 'novo lead'
                                                         ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
                                                         : 'bg-slate-700/50 text-slate-400 border-slate-600'
                                                     }`}>

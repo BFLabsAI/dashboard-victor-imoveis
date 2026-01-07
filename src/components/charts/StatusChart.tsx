@@ -7,11 +7,12 @@ interface DataPoint {
 
 interface StatusChartProps {
     data: DataPoint[];
+    colorMap?: Record<string, string>;
 }
 
-const COLORS = ['#6366f1', '#10b981', '#94a3b8']; // Indigo, Emerald, Slate
+const DEFAULT_COLORS = ['#6366f1', '#10b981', '#94a3b8', '#F59E0B', '#EC4899', '#8B5CF6'];
 
-export function StatusChart({ data }: StatusChartProps) {
+export function StatusChart({ data, colorMap }: StatusChartProps) {
     const renderCustomLabel = (entry: any) => {
         if (entry.value === 0) return '';
         return entry.value;
@@ -32,9 +33,14 @@ export function StatusChart({ data }: StatusChartProps) {
                         labelLine={false}
                         label={renderCustomLabel}
                     >
-                        {data.map((_entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
+                        {data.map((entry, index) => {
+                            // Use colorMap if available, otherwise fallback to default colors
+                            const color = colorMap && entry.name.toLowerCase() in colorMap
+                                ? colorMap[entry.name.toLowerCase()]
+                                : DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+
+                            return <Cell key={`cell-${index}`} fill={color} />;
+                        })}
                     </Pie>
                     <Tooltip
                         contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}

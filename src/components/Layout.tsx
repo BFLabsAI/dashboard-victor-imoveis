@@ -38,14 +38,14 @@ export function Layout({ children }: LayoutProps) {
                     <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-xl overflow-hidden bg-navy-700 flex items-center justify-center shadow-lg border border-navy-600">
                             <img
-                                src="https://i.ibb.co/HD7b9xsp/IMG-8602.jpg"
-                                alt="Escritório Dantas e Filizola"
+                                src="/logo.jpg"
+                                alt="Odonto Solluti"
                                 className="w-full h-full object-cover"
                             />
                         </div>
                         <div>
-                            <h1 className="text-xl font-bold text-slate-100 tracking-tight leading-none">Escritório Dantas e Filizola</h1>
-                            <span className="text-xs text-neon-blue font-medium tracking-widest uppercase">AI Agent</span>
+                            <h1 className="text-xl font-bold text-slate-100 tracking-tight leading-none">Odonto Solluti</h1>
+                            <span className="text-xs text-neon-blue font-medium tracking-widest uppercase">Odontologia</span>
                         </div>
                     </div>
                     <button
@@ -90,7 +90,7 @@ export function Layout({ children }: LayoutProps) {
                             DA
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-white truncate">Escritório Dantas e Filizola</p>
+                            <p className="text-sm font-bold text-white truncate">Odonto Solluti</p>
                             <p className="text-xs text-slate-400 truncate">Online</p>
                         </div>
                         <LogOut size={18} className="text-slate-500 hover:text-neon-blue cursor-pointer transition-colors" />
@@ -113,7 +113,7 @@ export function Layout({ children }: LayoutProps) {
                             <h2 className="text-2xl font-bold text-white tracking-tight">
                                 {navigation.find(n => n.href === location.pathname)?.name || 'Dashboard'}
                             </h2>
-                            <p className="text-sm text-slate-400">Bem-vindo ao Escritório Dantas e Filizola</p>
+                            <p className="text-sm text-slate-400">Bem-vindo ao Odonto Solluti</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-6">

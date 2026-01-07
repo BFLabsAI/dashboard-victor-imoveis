@@ -10,7 +10,8 @@ export function Settings() {
         instance_name: '',
         uazapi_instance: '',
         uazapi_api_key: '',
-        notification_number: ''
+        notification_number: '',
+        server_url: ''
     });
 
     useEffect(() => {
@@ -20,7 +21,7 @@ export function Settings() {
     async function fetchSettings() {
         try {
             const { data, error } = await supabase
-                .from('instancias_filizola')
+                .from('instancias_odonto_solutti')
                 .select('*')
                 .limit(1);
 
@@ -30,10 +31,11 @@ export function Settings() {
                 const record = data[0];
                 setSettings({
                     id: record.id,
-                    instance_name: record.instance_name || '',
-                    uazapi_instance: record.instance_name || '',
+                    instance_name: record.instancia || '',
+                    uazapi_instance: record.instancia || '',
                     uazapi_api_key: record.api_key || '',
-                    notification_number: record.notification_number || ''
+                    notification_number: record.notification_number || '',
+                    server_url: record.server_url || 'https://api.bflabs.com.br'
                 });
             }
         } catch (error) {
@@ -46,23 +48,28 @@ export function Settings() {
         setSaving(true);
         try {
             const payload = {
-                instance_name: settings.instance_name,
+                instancia: settings.instance_name,
                 api_key: settings.uazapi_api_key,
-                notification_number: settings.notification_number,
-                updated_at: new Date().toISOString()
+                notification_number: settings.notification_number
             };
 
             let error;
             if (settings.id) {
                 const { error: updateError } = await supabase
-                    .from('instancias_filizola')
+                    .from('instancias_odonto_solutti')
                     .update(payload)
                     .eq('id', settings.id);
                 error = updateError;
             } else {
+                // For insert, we need all required fields
+                const insertPayload = {
+                    ...payload,
+                    server_url: 'https://api2.bflabs.com.br',
+                    status: 'ativo'
+                };
                 const { error: insertError } = await supabase
-                    .from('instancias_filizola')
-                    .insert([payload]);
+                    .from('instancias_odonto_solutti')
+                    .insert([insertPayload]);
                 error = insertError;
             }
 
@@ -84,100 +91,78 @@ export function Settings() {
         }
 
         try {
+            // Fortaleza timezone is UTC-3 (no daylight saving)
+            // We'll calculate dates directly and format them correctly
+
             const now = new Date();
-            let startDate: Date;
-            let endDate: Date;
             let dateRangeStr: string;
 
             if (type === 'Diário') {
-                // Yesterday 00:00 to 23:59
-                startDate = new Date(now);
-                startDate.setDate(startDate.getDate() - 1);
-                startDate.setHours(0, 0, 0, 0);
+                // YESTERDAY in Fortaleza timezone: 00:00 to 23:59
+                // Report is sent at 6AM, so we want the previous day's complete data
 
-                endDate = new Date(startDate);
-                endDate.setHours(23, 59, 59, 999);
+                // Get yesterday's date in Fortaleza
+                const yesterdayFortaleza = new Date(now.toLocaleString('en-US', { timeZone: 'America/Fortaleza' }));
+                yesterdayFortaleza.setDate(yesterdayFortaleza.getDate() - 1);
 
-                dateRangeStr = startDate.toLocaleDateString('pt-BR');
+                // Format the display date (DD/MM/YYYY)
+                const day = String(yesterdayFortaleza.getDate()).padStart(2, '0');
+                const month = String(yesterdayFortaleza.getMonth() + 1).padStart(2, '0');
+                const year = yesterdayFortaleza.getFullYear();
+                dateRangeStr = `${day}/${month}/${year}`;
+
+
             } else {
-                // Last Week (Monday to Sunday)
-                // If today is Monday (1), we go back 7 days for start, and 1 day for end
-                const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
+                // Last Week (Monday to Sunday) in Fortaleza timezone
+                const nowFortaleza = new Date(now.toLocaleString('en-US', { timeZone: 'America/Fortaleza' }));
+                const dayOfWeek = nowFortaleza.getDay(); // 0 = Sunday, 1 = Monday
 
-                // For testing purposes, let's assume "Last Week" means the last completed week (Mon-Sun)
-                // Or if running mid-week, maybe "Last 7 days"? 
-                // User said: "toda segunda feira pegar os dados da ultima semana ou seja de segunda passada a domingo"
-                // So if we are testing, we should probably simulate this "Last Week" window.
-
-                const lastSunday = new Date(now);
-                lastSunday.setDate(now.getDate() - (dayOfWeek === 0 ? 7 : dayOfWeek));
-                lastSunday.setHours(23, 59, 59, 999);
+                const lastSunday = new Date(nowFortaleza);
+                lastSunday.setDate(nowFortaleza.getDate() - (dayOfWeek === 0 ? 7 : dayOfWeek));
 
                 const lastMonday = new Date(lastSunday);
                 lastMonday.setDate(lastSunday.getDate() - 6);
-                lastMonday.setHours(0, 0, 0, 0);
 
-                startDate = lastMonday;
-                endDate = lastSunday;
-                dateRangeStr = `${startDate.toLocaleDateString('pt-BR')} a ${endDate.toLocaleDateString('pt-BR')}`;
+                // Format display dates
+                const startDay = String(lastMonday.getDate()).padStart(2, '0');
+                const startMonth = String(lastMonday.getMonth() + 1).padStart(2, '0');
+                const endDay = String(lastSunday.getDate()).padStart(2, '0');
+                const endMonth = String(lastSunday.getMonth() + 1).padStart(2, '0');
+                const year = lastMonday.getFullYear();
+                dateRangeStr = `${startDay}/${startMonth}/${year} a ${endDay}/${endMonth}/${year}`;
+
             }
 
-            // Helper to format ISO string for Supabase comparison
-            const startISO = startDate.toISOString();
-            const endISO = endDate.toISOString();
+            // Calculate date parameters for RPC function (YYYY-MM-DD format)
+            let startDateStr: string;
+            let endDateStr: string;
 
-            // 1. Total New Leads
-            const { count: newLeadsCount, error: newLeadsError } = await supabase
-                .from('leads_filizola')
-                .select('*', { count: 'exact', head: true })
-                .gte('created_at', startISO)
-                .lte('created_at', endISO);
+            if (type === 'Diário') {
+                // Single day - yesterday
+                startDateStr = dateRangeStr.split('/').reverse().join('-'); // DD/MM/YYYY -> YYYY-MM-DD
+                endDateStr = startDateStr;
+            } else {
+                // Week range
+                startDateStr = dateRangeStr.split(' a ')[0].split('/').reverse().join('-');
+                endDateStr = dateRangeStr.split(' a ')[1].split('/').reverse().join('-');
+            }
 
-            if (newLeadsError) throw newLeadsError;
+            // Call RPC function that handles timezone conversion properly in SQL
+            const { data: reportData, error: reportError } = await supabase
+                .rpc('get_report_stats', {
+                    p_start_date: startDateStr,
+                    p_end_date: endDateStr
+                });
 
-            // 2. Total Contacted Leads (Active in period)
-            // Using data_ultima_interacao. Note: It's a text field in ISO format based on previous check.
-            // We need to be careful with string comparison, but ISO strings compare correctly lexicographically.
-            const { count: contactedCount, error: contactedError } = await supabase
-                .from('leads_filizola')
-                .select('*', { count: 'exact', head: true })
-                .gte('data_ultima_interacao', startISO)
-                .lte('data_ultima_interacao', endISO);
+            if (reportError) throw reportError;
 
-            if (contactedError) throw contactedError;
+            const stats = reportData?.[0] || { new_leads: 0, contacted: 0, repassado: 0, cadence_breakdown: {} };
 
-            // 3. Total Repasse
-            const { count: repasseCount, error: repasseError } = await supabase
-                .from('leads_filizola')
-                .select('*', { count: 'exact', head: true })
-                .eq('status_lead', 'repassado')
-                .gte('data_ultima_interacao', startISO)
-                .lte('data_ultima_interacao', endISO);
-
-            if (repasseError) throw repasseError;
-
-            // 4. Cadence Breakdown
-            // We can't easily do a "GROUP BY" with counts in a single Supabase call without a stored procedure or RPC.
-            // We will fetch the 'dia_cadencia' for all contacted leads and aggregate in JS. 
-            // If the volume is huge, this is bad, but for a dashboard report it's likely manageable.
-            const { data: cadenceData, error: cadenceError } = await supabase
-                .from('leads_filizola')
-                .select('dia_cadencia')
-                .gte('data_ultima_interacao', startISO)
-                .lte('data_ultima_interacao', endISO);
-
-            if (cadenceError) throw cadenceError;
-
-            const cadenceCounts: Record<string, number> = {};
-            cadenceData?.forEach(lead => {
-                const day = lead.dia_cadencia || 'Desconhecido';
-                cadenceCounts[day] = (cadenceCounts[day] || 0) + 1;
-            });
-
-            // Format Cadence String
+            // Format Cadence String from JSONB
             let cadenceString = '';
-            Object.entries(cadenceCounts)
-                .sort((a, b) => a[0].localeCompare(b[0])) // Sort alphabetically or by day
+            const cadenceBreakdown = stats.cadence_breakdown || {};
+            Object.entries(cadenceBreakdown)
+                .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
                 .forEach(([day, count]) => {
                     cadenceString += `- ${day}: ${count}\n`;
                 });
@@ -185,32 +170,29 @@ export function Settings() {
             // Construct Message
             const message = `📊 *Relatório ${type}*\n` +
                 `📅 Período: ${dateRangeStr}\n\n` +
-                `🆕 *Novos Leads:* ${newLeadsCount}\n` +
-                `💬 *Total Contactados:* ${contactedCount}\n` +
-                `🔄 *Total Repasse:* ${repasseCount}\n\n` +
+                `🆕 *Novos Leads:* ${stats.new_leads}\n` +
+                `💬 *Total Contactados:* ${stats.contacted}\n` +
+                `🔄 *Total Repasse:* ${stats.repassado}\n\n` +
                 `📉 *Por Dia da Cadência:*\n${cadenceString || 'Nenhum dado'}`;
 
-            // Send API Request
-            let baseUrl = settings.instance_name.trim();
-            baseUrl = baseUrl.replace(/\/+$/, '');
-            if (!baseUrl.startsWith('http')) {
-                baseUrl = `https://${baseUrl}.uazapi.com`;
-            }
-            const url = `${baseUrl}/send/text`;
+            // Send API Request via Supabase Edge Function (CORS proxy)
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://iixeygzkgfwetchjvpvo.supabase.co';
+            const edgeFunctionUrl = `${supabaseUrl}/functions/v1/send-whatsapp`;
 
-            console.log('Sending report to:', url);
+            console.log('Sending report via Edge Function:', edgeFunctionUrl);
             console.log('Report Content:', message);
 
-            const response = await fetch(url, {
+            const response = await fetch(edgeFunctionUrl, {
                 method: 'POST',
                 headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'token': settings.uazapi_api_key
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    serverUrl: settings.server_url,
+                    instanceName: settings.instance_name,
                     number: settings.notification_number,
-                    text: message
+                    text: message,
+                    apiKey: settings.uazapi_api_key
                 })
             });
 
