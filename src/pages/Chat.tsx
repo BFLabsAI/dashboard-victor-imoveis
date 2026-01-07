@@ -24,9 +24,11 @@ export function Chat() {
         setSummary('');
 
         try {
-            const conversationText = chatHistory.map(msg =>
-                `${msg.message.type === 'human' ? 'Cliente' : 'Atendente'}: ${msg.message.content}`
-            ).join('\n');
+            const conversationText = chatHistory
+                .slice(-30) // Limit to last 30 messages
+                .map(msg =>
+                    `${msg.message.type === 'human' ? 'Cliente' : 'Atendente'}: ${msg.message.content}`
+                ).join('\n');
 
             const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://iixeygzkgfwetchjvpvo.supabase.co';
             const edgeFunctionUrl = `${supabaseUrl}/functions/v1/generate-summary`;
