@@ -574,8 +574,9 @@ export function Dashboard() {
                     </div>
                 </div>
 
-                {/* Charts Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                {/* Charts Grid: Status & Procedures */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    {/* Status dos Leads */}
                     <div className="bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl">
                         <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
                             <UserCheck className="text-neon-blue" size={20} />
@@ -585,11 +586,8 @@ export function Dashboard() {
                             <StatusChart data={statusData} colorMap={STATUS_COLORS} />
                         </div>
                     </div>
-                </div>
 
-                {/* Repassados and Procedures Row */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Tipos de Procedimento - Sourcing from REPASSADOS */}
+                    {/* Tipos de Procedimento (Repassados) */}
                     <div className="bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl">
                         <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
                             <Calendar className="text-pink-400" size={20} />
@@ -644,6 +642,18 @@ export function Dashboard() {
                             </ResponsiveContainer>
                         </div>
                     </div>
+                </div>
+
+                {/* Cadence Volume and Repassed Leads Row */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    {/* Volume por Dia da Cadência */}
+                    <div className="bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl">
+                        <h3 className="text-lg font-bold text-white mb-6 flex items-center">
+                            <span className="w-1 h-6 bg-emerald-500 rounded-full mr-3"></span>
+                            Volume por Dia da Cadência
+                        </h3>
+                        <CadenceVolumeChart data={cadenceData} />
+                    </div>
 
                     {/* Últimos Leads Repassados */}
                     <div className="bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl overflow-hidden flex flex-col">
@@ -675,13 +685,6 @@ export function Dashboard() {
                             )}
                         </div>
                     </div>
-                </div>
-                <div className="bg-navy-800 p-6 rounded-3xl border border-navy-700 shadow-xl">
-                    <h3 className="text-lg font-bold text-white mb-6 flex items-center">
-                        <span className="w-1 h-6 bg-emerald-500 rounded-full mr-3"></span>
-                        Volume por Dia da Cadência
-                    </h3>
-                    <CadenceVolumeChart data={cadenceData} />
                 </div>
 
                 {/* Recent Leads Table */}
