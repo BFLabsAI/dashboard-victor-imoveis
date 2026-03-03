@@ -5,6 +5,7 @@ export interface Lead {
     status_lead: string | null;
 
     // New fields from DB
+    imovel_interesse: string | null;
     tipo_procedimento: string | null;
     urgencia_caso: string | null;
     horario_preferencia: string | null;
@@ -38,6 +39,7 @@ export interface ChatHistory {
     session_id: string;
     message: ChatMessage;
     created_at?: string;
+    created?: string; // Coluna com timestamp em UTC
 }
 export interface RepassadoLead {
     id: string;

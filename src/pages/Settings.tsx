@@ -21,7 +21,7 @@ export function Settings() {
     async function fetchSettings() {
         try {
             const { data, error } = await supabase
-                .from('instancias_odonto_solutti')
+                .from('instancias_imobiliaria_rogaciano')
                 .select('*')
                 .limit(1);
 
@@ -56,7 +56,7 @@ export function Settings() {
             let error;
             if (settings.id) {
                 const { error: updateError } = await supabase
-                    .from('instancias_odonto_solutti')
+                    .from('instancias_imobiliaria_rogaciano')
                     .update(payload)
                     .eq('id', settings.id);
                 error = updateError;
@@ -68,7 +68,7 @@ export function Settings() {
                     status: 'ativo'
                 };
                 const { error: insertError } = await supabase
-                    .from('instancias_odonto_solutti')
+                    .from('instancias_imobiliaria_rogaciano')
                     .insert([insertPayload]);
                 error = insertError;
             }

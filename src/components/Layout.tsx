@@ -36,16 +36,12 @@ export function Layout({ children }: LayoutProps) {
                 {/* Logo Area */}
                 <div className="flex items-center justify-between h-24 px-8">
                     <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-navy-700 flex items-center justify-center shadow-lg border border-navy-600">
-                            <img
-                                src="/logo.jpg"
-                                alt="Odonto Solluti"
-                                className="w-full h-full object-cover"
-                            />
+                        <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-lg border border-navy-600 p-1">
+                            <img src="/vitor-barros-logo.png" alt="Vitor Barros Imóveis Logo" className="w-full h-full object-contain" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-bold text-slate-100 tracking-tight leading-none">Odonto Solluti</h1>
-                            <span className="text-xs text-neon-blue font-medium tracking-widest uppercase">Odontologia</span>
+                            <h1 className="text-xl font-bold text-slate-100 tracking-tight leading-none">Vitor Barros Imóveis</h1>
+                            <span className="text-xs text-neon-blue font-medium tracking-widest uppercase">Imobiliária</span>
                         </div>
                     </div>
                     <button
@@ -90,7 +86,7 @@ export function Layout({ children }: LayoutProps) {
                             DA
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-white truncate">Odonto Solluti</p>
+                            <p className="text-sm font-bold text-white truncate">Imobiliaria Rogaciano</p>
                             <p className="text-xs text-slate-400 truncate">Online</p>
                         </div>
                         <LogOut size={18} className="text-slate-500 hover:text-neon-blue cursor-pointer transition-colors" />
@@ -113,7 +109,7 @@ export function Layout({ children }: LayoutProps) {
                             <h2 className="text-2xl font-bold text-white tracking-tight">
                                 {navigation.find(n => n.href === location.pathname)?.name || 'Dashboard'}
                             </h2>
-                            <p className="text-sm text-slate-400">Bem-vindo ao Odonto Solluti</p>
+                            <p className="text-sm text-slate-400">Bem-vindo ao Vitor Barros Imoveis</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-6">

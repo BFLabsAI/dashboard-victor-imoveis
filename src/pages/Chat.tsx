@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { supabase } from '../lib/supabase';
 import type { Lead, ChatHistory } from '../types';
@@ -6,6 +7,7 @@ import { Search, Send, User, Clock, AlertCircle, FileText, Phone, MoreVertical, 
 import clsx from 'clsx';
 
 export function Chat() {
+    const [searchParams] = useSearchParams();
     const [leads, setLeads] = useState<Lead[]>([]);
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
     const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
@@ -20,40 +22,52 @@ export function Chat() {
 
     async function generateSummary() {
         if (!chatHistory.length || !selectedLead) return;
+
         setLoadingSummary(true);
         setSummary('');
 
         try {
             const conversationText = chatHistory
-                .slice(-30) // Limit to last 30 messages
+                .slice(-30)
                 .map(msg =>
                     `${msg.message.type === 'human' ? 'Cliente' : 'Atendente'}: ${msg.message.content}`
                 ).join('\n');
 
             const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://iixeygzkgfwetchjvpvo.supabase.co';
+            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
             const edgeFunctionUrl = `${supabaseUrl}/functions/v1/generate-summary`;
-            const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || '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';
+            const model = import.meta.env.VITE_OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 
             const response = await fetch(edgeFunctionUrl, {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${supabaseAnonKey}`
                 },
                 body: JSON.stringify({
                     messages: conversationText,
-                    apiKey: apiKey // Passing key from client to edge function
+                    model: model
                 })
             });
 
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[Chat] Erro na Edge Function:', response.status, errorText);
+                throw new Error(`Erro ${response.status}: ${errorText}`);
+            }
+
             const data = await response.json();
+
             if (data.choices && data.choices.length > 0) {
                 setSummary(data.choices[0].message.content);
+            } else if (data.summary) {
+                setSummary(data.summary);
             } else {
                 setSummary('Não foi possível gerar o resumo.');
             }
         } catch (error) {
-            console.error('Error generating summary:', error);
-            setSummary('Erro ao gerar resumo.');
+            console.error('[Chat] Error generating summary:', error);
+            setSummary('Erro ao gerar resumo. Verifique o console para mais detalhes.');
         } finally {
             setLoadingSummary(false);
         }
@@ -97,6 +111,17 @@ export function Chat() {
         fetchLeads();
     }, []);
 
+    // Seleciona o lead automaticamente quando vem parâmetro na URL
+    useEffect(() => {
+        const leadIdFromUrl = searchParams.get('lead');
+        if (leadIdFromUrl && leads.length > 0 && !selectedLead) {
+            const lead = leads.find(l => l.id === leadIdFromUrl);
+            if (lead) {
+                setSelectedLead(lead);
+            }
+        }
+    }, [leads, searchParams, selectedLead]);
+
     useEffect(() => {
         if (selectedLead) {
             fetchChatHistory((selectedLead.telefone || '').trim());
@@ -110,27 +135,41 @@ export function Chat() {
     async function fetchLeads() {
         try {
             const { data: leadsData, error: leadsError } = await supabase
-                .from('leads_odonto_solluti')
+                .from('leads_imobiliaria_rogaciano')
                 .select('*')
                 .order('created_at', { ascending: false })
                 .range(0, 4999);
 
             if (leadsError) throw leadsError;
 
-            // Fetch chat sessions to filter leads
+            // Fetch chat sessions directly from the table (sem usar RPC)
             const { data: chatData, error: chatError } = await supabase
-                .rpc('get_active_chat_sessions');
+                .from('n8n_chat_histories_imobiliaria_rogaciano')
+                .select('session_id');
 
-            if (chatError) throw chatError;
+            // Se der erro ao buscar sessões, continua sem o filtro (mostra todos os leads)
+            if (chatError) {
+                console.error('[Chat] Erro ao buscar sessões:', chatError);
+            }
 
             // Create a Set of session_ids for efficient lookup
-            // Normalize session_ids to ensure matching (trim and lowercase)
-            const sessions = (chatData as { session_id: string }[] | null)?.map(c => (c.session_id || '').trim().toLowerCase()) || [];
-            const chatSessions = new Set<string>(sessions);
+            // Normalize session_ids to ensure matching (apenas números)
+            const sessions = (chatData as { session_id: string }[] | null)?.map(c => {
+                let sid = (c.session_id || '').trim();
+                // Remove o sufixo @s.whatsapp.net se existir
+                if (sid.includes('@')) {
+                    sid = sid.split('@')[0];
+                }
+                // Mantém apenas números para garantir comparação correta
+                return sid.replace(/\D/g, '');
+            }) || [];
+
+            // Remove duplicatas
+            const uniqueSessions = [...new Set(sessions)];
+            console.log('[Chat] Sessões ativas encontradas:', uniqueSessions.length);
+            const chatSessions = new Set<string>(uniqueSessions);
 
             // Filter leads that have chat history
-            // We store the set of chat sessions to use in the render filter
-            // This allows us to show ALL leads when searching, but only active ones by default
             setChatHistorySessions(chatSessions);
             setLeads(leadsData || []);
         } catch (error) {
@@ -138,19 +177,45 @@ export function Chat() {
         }
     }
 
+    // Converte timestamp UTC para o fuso America/Fortaleza (GMT-3)
+    function formatTimeFromUTC(utcTimestamp: string | undefined): string {
+        if (!utcTimestamp) return '';
+
+        const date = new Date(utcTimestamp);
+        // Formata para o fuso America/Fortaleza
+        return date.toLocaleTimeString('pt-BR', {
+            timeZone: 'America/Fortaleza',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
     async function fetchChatHistory(sessionId: string | null) {
         if (!sessionId) return;
         console.log('[Chat] Fetching chat history for session ID:', sessionId);
+
+        // Normaliza o session_id removendo qualquer sufixo @s.whatsapp.net e caracteres não numéricos
+        const normalizedSessionId = sessionId.trim().replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '');
+
+        // Busca mensagens em ambos os formatos: com e sem o sufixo @s.whatsapp.net
+        // Isso é necessário porque o formato mudou ao longo do tempo
+        const sessionIdWithSuffix = `${normalizedSessionId}@s.whatsapp.net`;
+
+        console.log('[Chat] Buscando por:', normalizedSessionId, 'ou', sessionIdWithSuffix);
+
         try {
-            // Assuming session_id in chat history matches telefone in leads
+            // Busca mensagens com session_id no formato antigo (com sufixo) OU novo (sem sufixo)
             const { data, error } = await supabase
-                .from('n8n_chat_histories_odonto_solutti')
+                .from('n8n_chat_histories_imobiliaria_rogaciano')
                 .select('*')
-                .eq('session_id', sessionId)
+                .in('session_id', [normalizedSessionId, sessionIdWithSuffix])
                 .order('id', { ascending: true });
 
-            if (error) throw error;
-            console.log('[Chat] Fetched messages:', data?.length || 0);
+            if (error) {
+                console.error('[Chat] Erro na query:', error);
+                throw error;
+            }
+            console.log('[Chat] Fetched messages:', data?.length || 0, data);
             setChatHistory(data || []);
         } catch (error) {
             console.error('Error fetching chat history:', error);
@@ -160,7 +225,6 @@ export function Chat() {
     const filteredLeads = leads.filter(lead => {
         // Apply filter
         if (filter === 'repassado' && lead.status_lead !== 'repassado') return false;
-        // if (filter === 'urgente') return false; // lead.urgencia_caso logic if needed
 
         // Apply search term
         if (searchTerm.trim()) {
@@ -169,10 +233,10 @@ export function Chat() {
             const phone = (lead.telefone || '').toLowerCase();
 
             // Extract only digits for phone number comparison
-            const searchDigits = search.replace(/\D/g, ''); // Remove non-digits from search
-            const phoneDigits = phone.replace(/\D/g, ''); // Remove non-digits from phone
+            const searchDigits = search.replace(/\D/g, '');
+            const phoneDigits = phone.replace(/\D/g, '');
 
-            // Match by name OR by phone (either full phone string or just digits)
+            // Match by name OR by phone
             return name.includes(search) ||
                 phone.includes(search) ||
                 (searchDigits && phoneDigits.includes(searchDigits));
@@ -180,8 +244,9 @@ export function Chat() {
 
         // If no search term, ONLY show leads with chat history
         if (lead.telefone) {
-            const normalizedPhone = lead.telefone.trim().toLowerCase();
-            return chatHistorySessions.has(normalizedPhone);
+            // Normaliza o telefone para apenas dígitos
+            const phoneDigits = lead.telefone.replace(/\D/g, '');
+            return chatHistorySessions.has(phoneDigits);
         }
 
         return false;
@@ -257,11 +322,15 @@ export function Chat() {
                                         )}>
                                             {lead.lead_name || lead.telefone || 'Sem Nome'}
                                         </span>
-                                        <span className="text-xs text-slate-500">10:42</span>
+                                        <span className="text-xs text-slate-500">
+                                            {lead.data_ultima_interacao
+                                                ? new Date(lead.data_ultima_interacao).toLocaleDateString('pt-BR', { timeZone: 'America/Fortaleza', day: '2-digit', month: '2-digit' })
+                                                : ''}
+                                        </span>
                                     </div>
                                     <p className="text-xs text-slate-400 truncate flex items-center gap-1">
                                         {(lead.status_lead === 'novo' || lead.status_lead === 'novo lead') && <span className="w-1.5 h-1.5 rounded-full bg-neon-blue"></span>}
-                                        {lead.tipo_procedimento || 'Sem interesse'}
+                                        {lead.imovel_interesse || lead.tipo_procedimento || 'Sem interesse'}
                                     </p>
                                 </div>
                             </button>
@@ -365,7 +434,7 @@ export function Chat() {
                                                         "text-[10px] absolute bottom-1",
                                                         isClient ? "right-3 text-slate-400" : "left-3 text-navy-800/60"
                                                     )}>
-                                                        10:42
+                                                        {formatTimeFromUTC(msg.created || msg.created_at)}
                                                     </span>
                                                 </div>
                                             </div>
@@ -443,7 +512,7 @@ export function Chat() {
                                     {selectedLead.lead_name ? selectedLead.lead_name.charAt(0).toUpperCase() : 'L'}
                                 </div>
                                 <h2 className="text-xl font-bold text-white">Atendimentos</h2>
-                                <p className="text-slate-400 text-sm">Gerencie suas conversas do Odonto Solluti</p>
+                                <p className="text-slate-400 text-sm">Gerencie suas conversas do Victor Barros</p>
                             </div>        <div className="flex justify-center gap-2 mt-4">
                                 <button className="p-2 bg-navy-700 rounded-lg text-neon-blue hover:bg-neon-blue hover:text-navy-900 transition-colors border border-navy-600">
                                     <Phone size={18} />
@@ -472,7 +541,7 @@ export function Chat() {
                                                 const newValue = !selectedLead.atendimento_humano;
                                                 try {
                                                     const { error } = await supabase
-                                                        .from('leads_odonto_solluti')
+                                                        .from('leads_imobiliaria_rogaciano')
                                                         .update({ atendimento_humano: newValue })
                                                         .eq('id', selectedLead.id);
 
@@ -579,9 +648,9 @@ export function Chat() {
                                         <div className="p-1.5 bg-navy-800 rounded-lg text-purple-400 group-hover:bg-purple-400 group-hover:text-navy-900 transition-colors">
                                             <FileText size={16} />
                                         </div>
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tipo de Procedimento</span>
+                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Imóvel de Interesse</span>
                                     </div>
-                                    <p className="text-sm font-medium text-white pl-1">{selectedLead.tipo_procedimento || 'Não informado'}</p>
+                                    <p className="text-sm font-medium text-white pl-1">{selectedLead.imovel_interesse || 'Não informado'}</p>
                                 </div>
 
                                 <div className="p-3 bg-navy-900 rounded-2xl border border-navy-700 hover:border-neon-blue/30 transition-colors group">
