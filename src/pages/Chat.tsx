@@ -69,11 +69,11 @@ export function Chat() {
             }
 
             const data = await response.json();
-            console.log('[Chat] Dados recebidos:', data);
+            console.log('[Chat] Dados recebidos:', JSON.stringify(data, null, 2));
 
             if (data.error) {
                 console.error('[Chat] Erro na resposta:', data.error);
-                setSummary(`Erro: ${data.error.message || JSON.stringify(data.error)}`);
+                setSummary(`Erro: ${data.error.message || data.error || JSON.stringify(data.error)}`);
                 return;
             }
 
