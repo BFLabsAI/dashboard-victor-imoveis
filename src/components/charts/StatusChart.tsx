@@ -20,7 +20,7 @@ export function StatusChart({ data, colorMap }: StatusChartProps) {
 
     return (
         <div className="h-[320px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <PieChart margin={{ top: 25, right: 5, left: 5, bottom: 60 }}>
                     <Pie
                         data={data as any}

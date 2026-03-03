@@ -361,7 +361,7 @@ export function Dashboard() {
                             Top 3 Imóveis de Interesse
                         </h3>
                         <div className="flex items-center justify-center h-[300px]">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                                 <PieChart>
                                     <Pie
                                         data={(() => {
@@ -482,7 +482,7 @@ export function Dashboard() {
                             Volume por Etapa de Follow-up
                         </h3>
                         <div className="h-[300px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                                 <BarChart
                                     data={[
                                         {

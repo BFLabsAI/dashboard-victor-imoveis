@@ -38,6 +38,15 @@ export function Chat() {
             const edgeFunctionUrl = `${supabaseUrl}/functions/v1/generate-summary`;
             const model = import.meta.env.VITE_OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 
+            // Verificar se as variáveis estão configuradas
+            if (!supabaseAnonKey) {
+                console.error('[Chat] VITE_SUPABASE_ANON_KEY não configurada');
+                setSummary('Erro: Variável de ambiente VITE_SUPABASE_ANON_KEY não configurada.');
+                return;
+            }
+
+            console.log('[Chat] Gerando resumo...', { edgeFunctionUrl, model });
+
             const response = await fetch(edgeFunctionUrl, {
                 method: "POST",
                 headers: {
@@ -50,13 +59,23 @@ export function Chat() {
                 })
             });
 
+            console.log('[Chat] Resposta:', response.status);
+
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('[Chat] Erro na Edge Function:', response.status, errorText);
-                throw new Error(`Erro ${response.status}: ${errorText}`);
+                setSummary(`Erro ${response.status}: ${errorText}`);
+                return;
             }
 
             const data = await response.json();
+            console.log('[Chat] Dados recebidos:', data);
+
+            if (data.error) {
+                console.error('[Chat] Erro na resposta:', data.error);
+                setSummary(`Erro: ${data.error.message || JSON.stringify(data.error)}`);
+                return;
+            }
 
             if (data.choices && data.choices.length > 0) {
                 setSummary(data.choices[0].message.content);
@@ -67,7 +86,7 @@ export function Chat() {
             }
         } catch (error) {
             console.error('[Chat] Error generating summary:', error);
-            setSummary('Erro ao gerar resumo. Verifique o console para mais detalhes.');
+            setSummary(`Erro ao gerar resumo: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
         } finally {
             setLoadingSummary(false);
         }

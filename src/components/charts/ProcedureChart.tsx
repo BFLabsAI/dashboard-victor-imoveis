@@ -12,7 +12,7 @@ interface ProcedureChartProps {
 export function ProcedureChart({ data }: ProcedureChartProps) {
     return (
         <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart
                     layout="vertical"
                     data={data}
