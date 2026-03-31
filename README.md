@@ -1,11 +1,11 @@
-# Dashboard Odonto Solluti 🦷
+# Dashboard Imobiliária Rogaciano / Victor Imóveis 🏠
 
-Dashboard exclusivo desenvolvido para a **Odonto Solluti**, focado na gestão eficiente de leads e análise de atendimentos odontológicos.
+Dashboard exclusivo focado na gestão eficiente de leads imobiliários e análise de contatos.
 
 ## 🚀 Visão Geral
 
-Este sistema foi customizado para atender às necessidades específicas da clínica, permitindo o acompanhamento de:
-- **Leads por Procedimento**: Monitoramento de Facetas, Aparelho Ortodôntico, Clareamento, Prótese, etc.
+Este sistema foi customizado para atender às necessidades específicas da imobiliária, permitindo o acompanhamento de:
+- **Leads por Imóvel/Interesse**: Monitoramento de interesses em locação e venda.
 - **Eficiência do Atendimento**: Métricas de leads repassados e tempo de resposta.
 - **Performance de Marketing**: Análise de campanhas (Ads vs Orgânico) e criativos.
 
@@ -15,7 +15,7 @@ Este sistema foi customizado para atender às necessidades específicas da clín
 - **Estilização**: Tailwind CSS (Navy Theme customizado)
 - **Gráficos**: Recharts
 - **Ícones**: Lucide React
-- **Backend / Dados**: Supabase (Tabelas `leads_odonto_solluti`, `repassado_odonto_solluti`)
+- **Backend / Dados**: Supabase
 
 ## 📊 Funcionalidades Chave
 
@@ -45,7 +45,7 @@ Este sistema foi customizado para atender às necessidades específicas da clín
 
 ```bash
 # Clone o repositório
-git clone https://github.com/BFLabsAI/dashboard_filizola.git
+git clone https://github.com/BFLabsAI/dashboard-victor-imoveis.git
 
 # Instale as dependências
 npm install
@@ -70,4 +70,4 @@ Desenvolvido e mantido por **BFLabs AI**.
 Em caso de dúvidas ou problemas, entre em contato com o suporte técnico.
 
 ---
-© 2025 Odonto Solluti. Todos os direitos reservados.
+© 2025 Dashboard Victor Imóveis / Rogaciano. Todos os direitos reservados.
